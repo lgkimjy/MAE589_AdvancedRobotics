@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "advanced-robotics-cartpole"
+version = "0.1.0"
+description = "Double inverted pendulum on a cart: dynamics, linearization, and LQR stabilization."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "matplotlib>=3.8",
+  "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+casadi = [
+  "casadi>=3.6,<4",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
