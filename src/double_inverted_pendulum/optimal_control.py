@@ -291,7 +291,7 @@ class MPPIController:
         cost += np.sum(0.18 * rates[:, :, 0] ** 2 + 0.14 * rates[:, :, 1] ** 2 + 0.14 * rates[:, :, 2] ** 2, axis=1)
         cost += np.sum(0.0022 * (controls - reference_controls[None, :]) ** 2, axis=1)
         cost -= np.sum(10.0 * uprightness + 3.0 * progress * np.cos(angle1 - angle2), axis=1)
-        cost += np.sum(2.2 * progress * x_goal_error**2, axis=1)
+        cost += np.sum(100 * progress * x_goal_error**2, axis=1)
 
         if self.position_bounds is not None:
             lower_margin = states[:, :, 0] - self.position_bounds[0]
@@ -314,7 +314,7 @@ class MPPIController:
         cost += 180.0 * (terminal[:, 0] - terminal_ref[0]) ** 2
         cost += 420.0 * terminal_angle1**2 + 420.0 * terminal_angle2**2
         cost += 18.0 * terminal_rates[:, 0] ** 2 + 12.0 * terminal_rates[:, 1] ** 2 + 12.0 * terminal_rates[:, 2] ** 2
-        cost += 120.0 * (terminal[:, 0] - self.goal_state[0]) ** 2
+        cost += 400.0 * (terminal[:, 0] - self.goal_state[0]) ** 2
         return cost.astype(float)
 
     def _predict_states(self, state: np.ndarray, controls: np.ndarray) -> np.ndarray:
