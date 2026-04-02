@@ -22,11 +22,12 @@ class SingleInvertedPendulumEnv:
             self.initial_state = np.asarray(state, dtype=float)
         return self.initial_state.copy()
 
-    def rollout(self, controller: ControlLaw, initial_state: np.ndarray | None = None) -> SimulationResult:
+    def rollout(self, controller: ControlLaw | None = None, initial_state: np.ndarray | None = None) -> SimulationResult:
         start = self.initial_state if initial_state is None else np.asarray(initial_state, dtype=float)
+        control_law = controller if controller is not None else (lambda _t, _state: 0.0)
         return rollout_open_loop(
             initial_state=start,
-            controller=controller,
+            controller=control_law,
             params=self.params,
             t_final=self.t_final,
             dt=self.dt,

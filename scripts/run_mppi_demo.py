@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from double_inverted_pendulum.environment import DoubleInvertedPendulumEnv
+from double_inverted_pendulum.environment import BoxObstacle, DoubleInvertedPendulumEnv
 from double_inverted_pendulum.model import default_params, downright_state, upright_state
 from double_inverted_pendulum.optimal_control import MPPIController
 from double_inverted_pendulum.visualization import AnimationOptions, animate_simulation
@@ -46,6 +46,11 @@ def main() -> None:
         enforce_link_limits=True,
         initial_state=downright_state(args.initial_angle_offset),
     )
+    obstacles = [
+        BoxObstacle(center=(1.4, 0.55), width=0.75, height=0.4, color="#d66853"),
+        BoxObstacle(center=(1.4, -0.55), width=0.75, height=0.4, color="#d66853"),
+    ]
+    env.obstacles = obstacles
 
     controller = MPPIController(
         params=params,
@@ -85,7 +90,7 @@ def main() -> None:
             track_bounds=track_bounds,
             goal_x=goal_state[0],
         ),
-        obstacles=[],
+        obstacles=obstacles,
     )
 
 

@@ -8,7 +8,7 @@ from .controllers import (
     wrap_to_pi,
 )
 from .dynamics import cartpole_dynamics, linear_state_space
-from .environment import CircularObstacle, DoubleInvertedPendulumEnv, default_track_obstacles
+from .environment import BoxObstacle, CircularObstacle, DoubleInvertedPendulumEnv, Obstacle, default_track_obstacles
 from .kinematics import cart_and_tip_positions, end_effector_path, horizontal_span
 from .model import CartPoleParams, default_params, downright_state, upright_state
 from .optimal_control import (
@@ -21,9 +21,11 @@ from .visualization import AnimationOptions, animate_simulation
 
 __all__ = [
     "AnimationOptions",
+    "BoxObstacle",
     "CartPoleParams",
     "CircularObstacle",
     "DoubleInvertedPendulumEnv",
+    "Obstacle",
     "default_track_obstacles",
     "GainScheduledLQRController",
     "LQRGain",

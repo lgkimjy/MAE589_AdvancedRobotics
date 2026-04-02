@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Union
 
 import numpy as np
 
@@ -15,10 +16,21 @@ class CircularObstacle:
     color: str = "#b56576"
 
 
-def default_track_obstacles() -> list[CircularObstacle]:
+@dataclass(frozen=True)
+class BoxObstacle:
+    center: tuple[float, float]
+    width: float
+    height: float
+    color: str = "#b56576"
+
+
+Obstacle = Union[CircularObstacle, BoxObstacle]
+
+
+def default_track_obstacles() -> list[Obstacle]:
     return [
-        CircularObstacle(center=(0.85, 0.05), radius=0.12, color="#d66853"),
-        CircularObstacle(center=(1.15, 0.05), radius=0.12, color="#d66853"),
+        BoxObstacle(center=(1.4, 0.55), width=0.55, height=0.32, color="#d66853"),
+        BoxObstacle(center=(1.4, -0.55), width=0.55, height=0.32, color="#d66853"),
     ]
 
 
@@ -30,18 +42,19 @@ class DoubleInvertedPendulumEnv:
     cart_position_bounds: tuple[float, float] = (-1.0, 4.0)
     enforce_link_limits: bool = True
     initial_state: np.ndarray = field(default_factory=lambda: downright_state())
-    obstacles: list[CircularObstacle] = field(default_factory=list)
+    obstacles: list[Obstacle] = field(default_factory=list)
 
     def reset(self, state: np.ndarray | None = None) -> np.ndarray:
         if state is not None:
             self.initial_state = np.asarray(state, dtype=float)
         return self.initial_state.copy()
 
-    def rollout(self, controller: ControlLaw, initial_state: np.ndarray | None = None) -> SimulationResult:
+    def rollout(self, controller: ControlLaw | None = None, initial_state: np.ndarray | None = None) -> SimulationResult:
         start = self.initial_state if initial_state is None else np.asarray(initial_state, dtype=float)
+        control_law = controller if controller is not None else (lambda _t, _state: 0.0)
         return rollout_open_loop(
             initial_state=start,
-            controller=controller,
+            controller=control_law,
             params=self.params,
             t_final=self.t_final,
             dt=self.dt,

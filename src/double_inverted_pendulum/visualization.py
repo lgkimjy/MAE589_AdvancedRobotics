@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .environment import CircularObstacle
+from .environment import BoxObstacle, CircularObstacle, Obstacle
 from .kinematics import end_effector_path, cart_and_tip_positions
 from .model import CartPoleParams
 from .simulation import SimulationResult
@@ -20,7 +20,7 @@ class AnimationOptions:
     cart_width: float = 0.24
     cart_height: float = 0.12
     rod_width: float = 3.0
-    figure_size: tuple[float, float] = (9.0, 5.5)
+    figure_size: tuple[float, float] = (9.0, 4.5)
     follow_cart: bool = False
     camera_width: float = 4.0
     y_limits: tuple[float, float] = (-1.25, 1.45)
@@ -37,7 +37,7 @@ def animate_simulation(
     show: bool = True,
     save_path: str | None = None,
     options: AnimationOptions | None = None,
-    obstacles: list[CircularObstacle] | None = None,
+    obstacles: list[Obstacle] | None = None,
 ) -> None:
     import matplotlib.pyplot as plt
     from matplotlib import animation
@@ -84,7 +84,13 @@ def animate_simulation(
     fig, ax = plt.subplots(figsize=opts.figure_size)
     x_extent = max(opts.camera_width / 2.0, params.link1_length + params.link2_length + 0.8)
     cart_positions = states[:, 0]
-    obstacle_x = [obstacle.center[0] for obstacle in obstacles]
+    obstacle_x = []
+    for obstacle in obstacles:
+        if isinstance(obstacle, CircularObstacle):
+            obstacle_x.extend([obstacle.center[0] - obstacle.radius, obstacle.center[0] + obstacle.radius])
+        else:
+            half_width = obstacle.width / 2.0
+            obstacle_x.extend([obstacle.center[0] - half_width, obstacle.center[0] + half_width])
     goal_candidates = [opts.goal_x] if opts.goal_x is not None else []
     if opts.track_bounds is not None:
         world_x_min = opts.track_bounds[0] - 0.25
@@ -126,7 +132,21 @@ def animate_simulation(
                 )
 
     for obstacle in obstacles:
-        ax.add_patch(Circle(obstacle.center, obstacle.radius, color=obstacle.color, alpha=0.35))
+        if isinstance(obstacle, CircularObstacle):
+            ax.add_patch(Circle(obstacle.center, obstacle.radius, color=obstacle.color, alpha=0.35))
+            continue
+
+        ax.add_patch(
+            Rectangle(
+                (obstacle.center[0] - obstacle.width / 2.0, obstacle.center[1] - obstacle.height / 2.0),
+                obstacle.width,
+                obstacle.height,
+                facecolor=obstacle.color,
+                edgecolor=obstacle.color,
+                linewidth=1.2,
+                alpha=0.35,
+            )
+        )
 
     cart_patch = Rectangle(
         (states[0, 0] - opts.cart_width / 2.0, -opts.cart_height / 2.0),
@@ -158,8 +178,16 @@ def animate_simulation(
     goal_text = ax.text(0.02, 0.72, "", transform=ax.transAxes, va="top", bbox=text_box)
 
     if opts.goal_x is not None:
-        ax.axvline(opts.goal_x, ymin=0.44, ymax=0.62, color="#1982c4", linewidth=2.0, linestyle="--", alpha=0.9)
-        ax.text(opts.goal_x, 0.34, "goal", color="#1982c4", ha="center", va="bottom")
+        goal_height = params.link1_length + params.link2_length
+        ax.plot(
+            [opts.goal_x, opts.goal_x],
+            [0.0, goal_height],
+            color="#1982c4",
+            linewidth=2.0,
+            linestyle="--",
+            alpha=0.9,
+        )
+        ax.text(opts.goal_x, goal_height + 0.075, "goal", color="#1982c4", ha="center", va="bottom")
 
     def init() -> tuple[object, ...]:
         rod1_line.set_data([], [])
