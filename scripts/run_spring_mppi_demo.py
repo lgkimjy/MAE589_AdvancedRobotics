@@ -17,14 +17,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-show", action="store_true", help="Skip interactive display.")
     parser.add_argument("--show-tip-trace", dest="show_tip_trace", action="store_true", help="Draw the end-tip trajectory.")
     parser.add_argument("--hide-tip-trace", dest="show_tip_trace", action="store_false", help="Hide the end-tip trajectory.")
-    parser.add_argument("--show-history", dest="show_history", action="store_true", help="Draw fading history.")
-    parser.add_argument("--hide-history", dest="show_history", action="store_false", help="Hide fading history.")
     parser.add_argument("--show-prediction", dest="show_prediction", action="store_true", help="Draw the MPPI predicted rollout at each frame.")
     parser.add_argument("--hide-prediction", dest="show_prediction", action="store_false", help="Hide the MPPI predicted rollout.")
     parser.add_argument("--initial-angle-offset", type=float, default=0.05, help="Small offset from the exact downright pose in radians.")
     parser.add_argument("--length-offset", type=float, default=0.0, help="Initial spring length offset from hanging equilibrium in meters.")
     parser.add_argument("--sim-time", type=float, default=8.0, help="Simulation time for swing-up and settling.")
-    parser.set_defaults(show_tip_trace=True, show_history=True, show_prediction=True)
+    parser.set_defaults(show_tip_trace=True, show_prediction=True)
     return parser.parse_args()
 
 
@@ -84,7 +82,6 @@ def main() -> None:
         save_path=save_path,
         options=AnimationOptions(
             show_tip_trace=args.show_tip_trace,
-            show_history=args.show_history,
             show_prediction=args.show_prediction,
             track_bounds=track_bounds,
             goal_x=goal_state[0],

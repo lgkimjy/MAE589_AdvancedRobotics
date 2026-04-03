@@ -17,11 +17,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-show", action="store_true", help="Skip interactive display.")
     parser.add_argument("--show-tip-trace", dest="show_tip_trace", action="store_true", help="Draw the end-tip trajectory.")
     parser.add_argument("--hide-tip-trace", dest="show_tip_trace", action="store_false", help="Hide the end-tip trajectory.")
-    parser.add_argument("--show-history", dest="show_history", action="store_true", help="Draw fading history.")
-    parser.add_argument("--hide-history", dest="show_history", action="store_false", help="Hide fading history.")
     parser.add_argument("--initial-angle-offset", type=float, default=0.08, help="Small offset from the exact downright pose in radians.")
     parser.add_argument("--goal-x", type=float, default=3.0, help="Target cart position.")
-    parser.set_defaults(show_tip_trace=True, show_history=True)
+    parser.set_defaults(show_tip_trace=True)
     return parser.parse_args()
 
 
@@ -71,7 +69,6 @@ def main() -> None:
         save_path=save_path,
         options=AnimationOptions(
             show_tip_trace=args.show_tip_trace,
-            show_history=args.show_history,
             track_bounds=track_bounds,
             goal_x=goal_state[0],
         ),

@@ -13,7 +13,6 @@ from .simulation import SimulationResult
 @dataclass(frozen=True)
 class AnimationOptions:
     show_tip_trace: bool = False
-    show_history: bool = False
     show_prediction: bool = False
     fps: int = 30
     cart_width: float = 0.24
@@ -25,7 +24,6 @@ class AnimationOptions:
     y_limits: tuple[float, float] = (-0.95, 1.35)
     track_bounds: tuple[float, float] | None = None
     goal_x: float | None = None
-    history_window: int = 80
     trace_window: int = 80
 
 
@@ -43,8 +41,15 @@ def animate_simulation(
 
     opts = AnimationOptions() if options is None else options
     states = sim_result.state
+    if sim_result.time.size == 0:
+        raise ValueError("Simulation result is empty.")
     tip_path = end_effector_path(states, params)
     all_positions = np.array([cart_and_tip_positions(state, params) for state in states], dtype=float)
+    frame_dt = 1.0 / opts.fps
+    frame_times = np.arange(sim_result.time[0], sim_result.time[-1] + 0.5 * frame_dt, frame_dt)
+    frame_indices = np.searchsorted(sim_result.time, frame_times, side="left")
+    frame_indices = np.clip(frame_indices, 0, sim_result.time.size - 1)
+    frame_indices = np.unique(frame_indices)
 
     predicted_positions = None
     if sim_result.predicted_state is not None:
@@ -135,8 +140,6 @@ def animate_simulation(
     prediction_sample_collection = LineCollection([], colors=[], linewidths=1.2, zorder=1)
     ax.add_collection(tip_trace_collection)
     ax.add_collection(prediction_sample_collection)
-    cart_history = ax.scatter([], [], s=26, c=[], zorder=2)
-    tip_history = ax.scatter([], [], s=22, c=[], zorder=2)
 
     text_box = dict(facecolor="white", alpha=0.88, edgecolor="none", boxstyle="round,pad=0.25")
     time_text = ax.text(0.02, 0.96, "", transform=ax.transAxes, va="top", bbox=text_box)
@@ -155,8 +158,6 @@ def animate_simulation(
         prediction_tip_line.set_data([], [])
         prediction_cart_line.set_data([], [])
         prediction_sample_collection.set_segments([])
-        cart_history.set_offsets(np.empty((0, 2)))
-        tip_history.set_offsets(np.empty((0, 2)))
         time_text.set_text("")
         force_text.set_text("")
         position_text.set_text("")
@@ -169,15 +170,15 @@ def animate_simulation(
             prediction_tip_line,
             prediction_cart_line,
             prediction_sample_collection,
-            cart_history,
-            tip_history,
             time_text,
             force_text,
             position_text,
             goal_text,
         )
 
-    def update(frame_idx: int) -> tuple[object, ...]:
+    def update(display_idx: int) -> tuple[object, ...]:
+        frame_idx = int(frame_indices[display_idx])
+        visible_indices = frame_indices[: display_idx + 1]
         positions = all_positions[frame_idx]
         cart, tip = positions
         if opts.follow_cart:
@@ -186,32 +187,9 @@ def animate_simulation(
         rod_line.set_data([cart[0], tip[0]], [cart[1], tip[1]])
         tip_marker.set_data([tip[0]], [tip[1]])
 
-        if opts.show_history:
-            start_idx = max(0, frame_idx - opts.history_window + 1)
-            hist = all_positions[start_idx : frame_idx + 1]
-            alpha = np.linspace(0.02, 0.95, hist.shape[0]) ** 1.2
-            cart_history.set_offsets(hist[:, 0, :])
-            tip_history.set_offsets(hist[:, 1, :])
-            cart_history.set_facecolors(
-                np.column_stack([np.full(hist.shape[0], 1.0), np.zeros(hist.shape[0]), np.zeros(hist.shape[0]), alpha])
-            )
-            tip_history.set_facecolors(
-                np.column_stack(
-                    [
-                        np.full(hist.shape[0], 1.0),
-                        np.full(hist.shape[0], 202.0 / 255.0),
-                        np.full(hist.shape[0], 58.0 / 255.0),
-                        alpha,
-                    ]
-                )
-            )
-        else:
-            cart_history.set_offsets(np.empty((0, 2)))
-            tip_history.set_offsets(np.empty((0, 2)))
-
         if opts.show_tip_trace:
-            trace_start = max(0, frame_idx - opts.trace_window + 1)
-            trace = tip_path[trace_start : frame_idx + 1]
+            trace_start_display_idx = max(0, display_idx - opts.trace_window + 1)
+            trace = tip_path[visible_indices[trace_start_display_idx:]]
             if trace.shape[0] >= 2:
                 segments = np.stack([trace[:-1], trace[1:]], axis=1)
                 alpha = np.linspace(0.06, 0.95, segments.shape[0]) ** 1.15
@@ -266,8 +244,6 @@ def animate_simulation(
             prediction_tip_line,
             prediction_cart_line,
             prediction_sample_collection,
-            cart_history,
-            tip_history,
             time_text,
             force_text,
             position_text,
@@ -277,10 +253,10 @@ def animate_simulation(
     anim = animation.FuncAnimation(
         fig,
         update,
-        frames=len(sim_result.time),
+        frames=frame_indices.size,
         init_func=init,
         interval=1000.0 / opts.fps,
-        blit=True,
+        blit=False,
     )
     fig.tight_layout()
 

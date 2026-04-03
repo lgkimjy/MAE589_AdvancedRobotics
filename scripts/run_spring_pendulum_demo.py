@@ -64,7 +64,6 @@ def main() -> None:
         save_path=save_path,
         options=AnimationOptions(
             show_tip_trace=True,
-            show_history=True,
             track_bounds=env.cart_position_bounds,
         ),
     )
