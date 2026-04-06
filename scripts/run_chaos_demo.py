@@ -36,7 +36,7 @@ def main() -> None:
 
     params = replace(
         default_params(),
-        cart_damping=10000.0,
+        cart_damping=5000.0,
         joint1_damping=0.0,
         joint2_damping=0.0,
     )

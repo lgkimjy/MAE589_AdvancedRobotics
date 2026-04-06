@@ -18,8 +18,22 @@ class LQRGain:
     closed_loop_eigs: np.ndarray
 
 
+@dataclass(frozen=True)
+class EquilibriumLQRConfig:
+    q_mat: np.ndarray
+    r_mat: np.ndarray
+
+
 def wrap_to_pi(angle: np.ndarray | float) -> np.ndarray | float:
     return (np.asarray(angle) + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def state_error(state: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
+    error = np.asarray(state, dtype=float) - np.asarray(reference_state, dtype=float)
+    error = error.copy()
+    error[1] = float(wrap_to_pi(error[1]))
+    error[2] = float(wrap_to_pi(error[2]))
+    return error
 
 
 @dataclass
@@ -122,6 +136,100 @@ class ScheduledLQRNode:
 
 
 @dataclass
+class TrajectorySwitchingController:
+    params: CartPoleParams
+    plan_time: np.ndarray
+    plan_state: np.ndarray
+    plan_control: np.ndarray
+    equilibrium_state: np.ndarray
+    final_lqr: LQRGain
+    switch_angle: float = 0.16
+    switch_rate: float = 0.8
+    switch_position: float = 0.25
+    terminal_window: float = 1.5
+    active_mode: str = field(default="trajectory", init=False)
+    tracking_gains: np.ndarray = field(default_factory=lambda: np.empty((0, 1, 6)), init=False)
+    tracking_q_mat: np.ndarray = field(
+        default_factory=lambda: np.diag([20.0, 140.0, 140.0, 8.0, 18.0, 18.0]).astype(float),
+        init=False,
+    )
+    tracking_r_mat: np.ndarray = field(default_factory=lambda: np.array([[0.8]], dtype=float), init=False)
+
+    def __post_init__(self) -> None:
+        self.plan_time = np.asarray(self.plan_time, dtype=float)
+        self.plan_state = np.asarray(self.plan_state, dtype=float)
+        self.plan_control = np.asarray(self.plan_control, dtype=float)
+        self.equilibrium_state = np.asarray(self.equilibrium_state, dtype=float)
+        if self.plan_time.ndim != 1:
+            raise ValueError("plan_time must be one-dimensional.")
+        if self.plan_state.shape != (self.plan_time.size, self.equilibrium_state.size):
+            raise ValueError("plan_state must have shape (N, state_dim).")
+        if self.plan_control.shape[0] != self.plan_time.size:
+            raise ValueError("plan_control must have the same length as plan_time.")
+        self.tracking_gains = self._build_tracking_gains()
+
+    def __call__(self, time: float, state: np.ndarray) -> float:
+        state = np.asarray(state, dtype=float)
+        eq_error = state_error(state, self.equilibrium_state)
+        if self.active_mode != "lqr" and self._should_switch(time, eq_error):
+            self.active_mode = "lqr"
+
+        if self.active_mode == "lqr":
+            return float(-(self.final_lqr.k @ eq_error.reshape(-1, 1)).item())
+
+        ref_idx = self._reference_index(time)
+        reference_state = self._reference_state(time)
+        tracking_error = state_error(state, reference_state)
+        reference_control = float(self.plan_control[ref_idx])
+        tracking_feedback = float((self.tracking_gains[ref_idx] @ tracking_error.reshape(-1, 1)).item())
+        return reference_control - tracking_feedback
+
+    def _reference_control(self, time: float) -> float:
+        return float(np.interp(np.clip(time, self.plan_time[0], self.plan_time[-1]), self.plan_time, self.plan_control))
+
+    def _reference_index(self, time: float) -> int:
+        clamped_time = np.clip(time, self.plan_time[0], self.plan_time[-1])
+        return int(np.clip(np.searchsorted(self.plan_time, clamped_time, side="right") - 1, 0, self.plan_time.size - 1))
+
+    def _reference_state(self, time: float) -> np.ndarray:
+        clamped_time = np.clip(time, self.plan_time[0], self.plan_time[-1])
+        reference = np.empty(self.plan_state.shape[1], dtype=float)
+        for idx in range(self.plan_state.shape[1]):
+            reference[idx] = float(np.interp(clamped_time, self.plan_time, self.plan_state[:, idx]))
+        return reference
+
+    def _build_tracking_gains(self) -> np.ndarray:
+        n_steps = self.plan_time.size
+        gains = np.zeros((n_steps, 1, self.plan_state.shape[1]), dtype=float)
+        s_mat = self.final_lqr.s.copy()
+        gains[-1] = self.final_lqr.k
+
+        for idx in range(n_steps - 2, -1, -1):
+            dt = float(self.plan_time[idx + 1] - self.plan_time[idx])
+            a_cont, b_cont = linear_state_space(
+                self.params,
+                equilibrium_state=self.plan_state[idx],
+                equilibrium_input=float(self.plan_control[idx]),
+            )
+            a_disc = np.eye(a_cont.shape[0], dtype=float) + dt * a_cont
+            b_disc = dt * b_cont
+            g_mat = self.tracking_r_mat + b_disc.T @ s_mat @ b_disc
+            k_mat = np.linalg.solve(g_mat, b_disc.T @ s_mat @ a_disc)
+            s_mat = self.tracking_q_mat + a_disc.T @ s_mat @ (a_disc - b_disc @ k_mat)
+            gains[idx] = k_mat
+
+        return gains
+
+    def _should_switch(self, time: float, eq_error: np.ndarray) -> bool:
+        angle_ok = np.max(np.abs(eq_error[1:3])) <= self.switch_angle
+        rate_ok = np.linalg.norm(eq_error[3:]) <= self.switch_rate
+        position_ok = abs(eq_error[0]) <= self.switch_position
+        near_terminal_time = time >= self.plan_time[-1] - self.terminal_window
+        after_plan = time >= self.plan_time[-1]
+        return after_plan or (near_terminal_time and angle_ok and rate_ok and position_ok)
+
+
+@dataclass
 class GainScheduledLQRController:
     params: CartPoleParams
     target_position: float = 3.0
@@ -205,3 +313,22 @@ def lqr_gain(a_mat: np.ndarray, b_mat: np.ndarray, q_mat: np.ndarray, r_mat: np.
     k_mat = np.linalg.solve(r_mat, b_mat.T @ s_mat)
     eigs = np.linalg.eigvals(a_mat - b_mat @ k_mat)
     return LQRGain(k=k_mat, s=s_mat, closed_loop_eigs=eigs)
+
+
+def design_equilibrium_lqr(
+    params: CartPoleParams,
+    equilibrium_state: np.ndarray,
+    equilibrium_input: float = 0.0,
+    config: EquilibriumLQRConfig | None = None,
+) -> LQRGain:
+    if config is None:
+        config = EquilibriumLQRConfig(
+            q_mat=np.diag([30.0, 220.0, 220.0, 18.0, 32.0, 32.0]).astype(float),
+            r_mat=np.array([[0.6]], dtype=float),
+        )
+    a_mat, b_mat = linear_state_space(
+        params,
+        equilibrium_state=np.asarray(equilibrium_state, dtype=float),
+        equilibrium_input=equilibrium_input,
+    )
+    return lqr_gain(a_mat, b_mat, config.q_mat, config.r_mat)

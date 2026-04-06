@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import os
 from pathlib import Path
 import tempfile
@@ -20,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--show-prediction", dest="show_prediction", action="store_true", help="Draw the MPPI predicted rollout at each frame.")
     parser.add_argument("--hide-prediction", dest="show_prediction", action="store_false", help="Hide the MPPI predicted rollout.")
     parser.add_argument("--initial-angle-offset", type=float, default=0.00, help="Small offset from the exact downright pose in radians.")
-    parser.add_argument("--sim-time", type=float, default=60.0, help="Simulation time for swing-up and terminal settling.")
+    parser.add_argument("--sim-time", type=float, default=40.0, help="Simulation time for swing-up and terminal settling.")
     parser.set_defaults(show_tip_trace=True, show_prediction=True)
     return parser.parse_args()
 
@@ -31,7 +32,13 @@ def main() -> None:
     os.environ.setdefault("XDG_CACHE_HOME", tempfile.gettempdir())
     args = parse_args()
 
-    params = default_params()
+    params = replace(
+        default_params(), 
+        cart_damping=0.0,
+        joint1_damping=0.03,
+        joint2_damping=0.03,
+        force_limit=50.0,
+    )
     track_bounds = (-1.5, 7.5)
     goal_state = upright_state()
     goal_state[0] = 3.0
@@ -55,9 +62,9 @@ def main() -> None:
         goal_state=goal_state,
         dt=env.dt,
         horizon=24,
-        num_samples=1000,
+        num_samples=5000,
         noise_sigma=2.0,
-        temperature=8.0,
+        temperature=10.0,
         action_repeat=1,
         position_bounds=track_bounds,
     )

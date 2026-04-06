@@ -1,10 +1,14 @@
 """Tools for the double inverted pendulum cart-pole problem."""
 
 from .controllers import (
+    EquilibriumLQRConfig,
     GainScheduledLQRController,
     LQRGain,
     RandomShootingMPCController,
+    TrajectorySwitchingController,
+    design_equilibrium_lqr,
     lqr_gain,
+    state_error,
     wrap_to_pi,
 )
 from .dynamics import cartpole_dynamics, linear_state_space
@@ -25,13 +29,16 @@ __all__ = [
     "CartPoleParams",
     "CircularObstacle",
     "DoubleInvertedPendulumEnv",
+    "EquilibriumLQRConfig",
     "Obstacle",
     "default_track_obstacles",
+    "design_equilibrium_lqr",
     "GainScheduledLQRController",
     "LQRGain",
     "MPPIController",
     "RandomShootingMPCController",
     "SimulationResult",
+    "TrajectorySwitchingController",
     "TrajectoryPlan",
     "animate_simulation",
     "cart_and_tip_positions",
@@ -45,6 +52,7 @@ __all__ = [
     "optimize_trajectory_with_casadi",
     "rollout_open_loop",
     "simulate_closed_loop",
+    "state_error",
     "upright_state",
     "wrap_to_pi",
 ]
