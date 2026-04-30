@@ -48,8 +48,14 @@ Obstacle-aware swing-up demo:
 python scripts/run_casadi_trajopt_demo.py --obstacle-avoidance --obstacle-layout goal-under --optimizer direct --use-position-bounds --no-show --save outputs/trajopt_goal_under_obstacle_avoidance_demo.mp4 --horizon-steps 80 --dt 0.04 --initial-angle-offset 0.08 --obstacle-weight 1800 --obstacle-clearance 0.24 --hide-smoothstep-reference
 ```
 
+Obstacle-aware replay with LQR stabilization:
+
+```bash
+python scripts/run_casadi_trajopt_demo.py --obstacle-avoidance --obstacle-layout goal-under --optimizer direct --use-position-bounds --replay-plan --hold-time 6.0 --no-show --save outputs/trajopt_goal_under_obstacle_lqr_stabilized_demo.mp4 --horizon-steps 80 --dt 0.04 --initial-angle-offset 0.08 --obstacle-weight 1800 --obstacle-clearance 0.24 --hide-smoothstep-reference
+```
+
 The direct CasADi backend is most reliable with IPOPT available. If the script reports that IPOPT is unavailable, install or upgrade the optional CasADi dependency with the same Python interpreter used to run the script.
-If an older CasADi is being imported from `PYTHONPATH`, run the demo with `env -u PYTHONPATH python ...` so the active environment's CasADi package is used.
+The demo script prefers the `mae589-advanced-robotics` conda environment automatically when it is available, which avoids importing an older CasADi package from `PYTHONPATH`.
 
 ## Model
 

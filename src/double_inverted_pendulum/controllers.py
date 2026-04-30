@@ -178,9 +178,9 @@ class TrajectorySwitchingController:
             return float(-(self.final_lqr.k @ eq_error.reshape(-1, 1)).item())
 
         ref_idx = self._reference_index(time)
+        reference_control = self._reference_control(time)
         reference_state = self._reference_state(time)
         tracking_error = state_error(state, reference_state)
-        reference_control = float(self.plan_control[ref_idx])
         tracking_feedback = float((self.tracking_gains[ref_idx] @ tracking_error.reshape(-1, 1)).item())
         return reference_control - tracking_feedback
 

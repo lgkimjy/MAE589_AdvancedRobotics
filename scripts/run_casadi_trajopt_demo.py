@@ -11,6 +11,36 @@ import tempfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
+
+
+def maybe_reexec_course_env() -> None:
+    if os.environ.get("MAE589_TRAJOPT_NO_REEXEC"):
+        return
+
+    explicit_python = os.environ.get("MAE589_TRAJOPT_PYTHON")
+    candidates = [Path(explicit_python)] if explicit_python else []
+    candidates.extend(
+        [
+            Path.home() / "miniforge3/envs/mae589-advanced-robotics/bin/python",
+            Path.home() / "miniconda3/envs/mae589-advanced-robotics/bin/python",
+            Path.home() / "anaconda3/envs/mae589-advanced-robotics/bin/python",
+        ]
+    )
+
+    current_python = Path(sys.executable).resolve()
+    for candidate in candidates:
+        if not candidate or not candidate.exists():
+            continue
+        candidate = candidate.resolve()
+        if candidate == current_python:
+            return
+        # Keep the demo runnable from base shells that inherit a stale PYTHONPATH.
+        os.environ["MAE589_TRAJOPT_REEXECED"] = "1"
+        os.execv(str(candidate), [str(candidate), *sys.argv])
+
+
+maybe_reexec_course_env()
+
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -24,7 +54,11 @@ for package_dir in [*site.getsitepackages(), sysconfig.get_paths().get("purelib"
 import numpy as np
 
 from double_inverted_pendulum.collision import minimum_obstacle_clearance
-from double_inverted_pendulum.controllers import TrajectorySwitchingController, design_equilibrium_lqr, state_error
+from double_inverted_pendulum.controllers import (
+    TrajectorySwitchingController,
+    design_equilibrium_lqr,
+    state_error,
+)
 from double_inverted_pendulum.environment import default_track_obstacles, goal_under_obstacle, staggered_track_obstacles
 from double_inverted_pendulum.model import default_params, downright_state, upright_state
 from double_inverted_pendulum.optimal_control import optimize_trajectory_with_casadi, optimize_trajectory_with_casadi_shooting
@@ -41,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-angle-offset", type=float, default=0.0, help="Small offset from the exact downright pose in radians.")
     parser.add_argument("--horizon-steps", type=int, default=80, help="Number of multiple-shooting intervals.")
     parser.add_argument("--dt", type=float, default=0.04, help="Timestep for the optimal control discretization.")
-    parser.add_argument("--hold-time", type=float, default=5.0, help="Extra simulation time after the planned trajectory to show final LQR stabilization.")
+    parser.add_argument("--hold-time", type=float, default=5.0, help="Extra simulation time after the planned trajectory to show terminal stabilization.")
     parser.add_argument("--goal-x", type=float, default=3.0, help="Target cart position.")
     parser.add_argument(
         "--optimizer",
@@ -76,13 +110,13 @@ def parse_args() -> argparse.Namespace:
         "--hybrid-stabilize",
         dest="hybrid_stabilize",
         action="store_true",
-        help="Replay the trajectory and switch to a final equilibrium LQR near the upright target.",
+        help="Replay the trajectory and use the selected feedback controller near the upright target.",
     )
     parser.add_argument(
         "--open-loop-replay",
         dest="hybrid_stabilize",
         action="store_false",
-        help="Replay the optimized force profile without the final equilibrium LQR.",
+        help="Replay the optimized force profile without terminal feedback.",
     )
     parser.set_defaults(show_tip_trace=True, show_plan=None)
     parser.set_defaults(hybrid_stabilize=True)
@@ -221,8 +255,9 @@ def main() -> None:
             method_name = f"CasADi {optimizer} trajectory optimization (planned trajectory)"
         final_state = plan.state[-1]
     else:
-        final_lqr = design_equilibrium_lqr(params=params, equilibrium_state=goal_state)
+        final_lqr = None
         if args.hybrid_stabilize:
+            final_lqr = design_equilibrium_lqr(params=params, equilibrium_state=goal_state)
             replay_controller = TrajectorySwitchingController(
                 params=params,
                 plan_time=plan.time,
@@ -231,7 +266,7 @@ def main() -> None:
                 equilibrium_state=goal_state,
                 final_lqr=final_lqr,
             )
-            method_name = "CasADi trajectory optimization + final equilibrium LQR"
+            method_name = "CasADi trajectory optimization + LQR stabilization"
         else:
             def open_loop_controller(time: float, _state) -> float:
                 return float(np.interp(np.clip(time, plan.time[0], plan.time[-1]), plan.time, plan.control))
@@ -271,8 +306,9 @@ def main() -> None:
         print(wrapped_final_error)
         print("\nFinal wrapped state error norm:")
         print(np.linalg.norm(wrapped_final_error))
-        print("\nFinal LQR gain:")
-        print(final_lqr.k)
+        if final_lqr is not None:
+            print("\nFinal LQR gain:")
+            print(final_lqr.k)
     print("\nPeak control magnitude:")
     print(abs(sim_result.control).max())
     if obstacles:
