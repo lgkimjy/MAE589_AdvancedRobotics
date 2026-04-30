@@ -11,13 +11,23 @@ from .controllers import (
     state_error,
     wrap_to_pi,
 )
+from .collision import link_sample_points, minimum_obstacle_clearance, point_obstacle_clearance
 from .dynamics import cartpole_dynamics, linear_state_space
-from .environment import BoxObstacle, CircularObstacle, DoubleInvertedPendulumEnv, Obstacle, default_track_obstacles
+from .environment import (
+    BoxObstacle,
+    CircularObstacle,
+    DoubleInvertedPendulumEnv,
+    Obstacle,
+    default_track_obstacles,
+    goal_under_obstacle,
+    staggered_track_obstacles,
+)
 from .kinematics import cart_and_tip_positions, end_effector_path, horizontal_span
 from .model import CartPoleParams, default_params, downright_state, upright_state
 from .optimal_control import (
     MPPIController,
     TrajectoryPlan,
+    optimize_trajectory_with_casadi_shooting,
     optimize_trajectory_with_casadi,
 )
 from .simulation import SimulationResult, rollout_open_loop, simulate_closed_loop
@@ -32,6 +42,8 @@ __all__ = [
     "EquilibriumLQRConfig",
     "Obstacle",
     "default_track_obstacles",
+    "goal_under_obstacle",
+    "staggered_track_obstacles",
     "design_equilibrium_lqr",
     "GainScheduledLQRController",
     "LQRGain",
@@ -49,7 +61,11 @@ __all__ = [
     "horizontal_span",
     "linear_state_space",
     "lqr_gain",
+    "link_sample_points",
+    "minimum_obstacle_clearance",
     "optimize_trajectory_with_casadi",
+    "optimize_trajectory_with_casadi_shooting",
+    "point_obstacle_clearance",
     "rollout_open_loop",
     "simulate_closed_loop",
     "state_error",

@@ -27,6 +27,8 @@ class AnimationOptions:
     track_bounds: tuple[float, float] | None = None
     goal_x: float | None = None
     trace_window: int = 80
+    #: Optional reference trajectory (e.g. cubic smoothstep warm-start for trajopt): drawn as a static tip path.
+    reference_state: np.ndarray | None = None
 
 
 def animate_simulation(
@@ -190,6 +192,22 @@ def animate_simulation(
             alpha=0.9,
         )
         ax.text(opts.goal_x, goal_height + 0.075, "goal", color="#1982c4", ha="center", va="bottom")
+
+    if opts.reference_state is not None:
+        ref_states = np.asarray(opts.reference_state, dtype=float)
+        ref_tip_path = end_effector_path(ref_states, params)
+        if ref_tip_path.shape[0] >= 2:
+            ax.plot(
+                ref_tip_path[:, 0],
+                ref_tip_path[:, 1],
+                color="#2a9d8f",
+                linewidth=2.0,
+                linestyle="--",
+                alpha=0.9,
+                zorder=1.85,
+                label="smoothstep ref",
+            )
+            ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
 
     def init() -> tuple[object, ...]:
         rod1_line.set_data([], [])

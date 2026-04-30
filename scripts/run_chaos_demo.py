@@ -40,7 +40,7 @@ def main() -> None:
         joint1_damping=0.0,
         joint2_damping=0.0,
     )
-    track_bounds = (-3.0, 3.0)
+    track_bounds = (-1.5, 1.5)
     initial_state = np.array([0.0, args.theta1, args.theta2, 0.0, args.theta1_dot, args.theta2_dot], dtype=float)
     env = DoubleInvertedPendulumEnv(
         params=params,
@@ -67,6 +67,7 @@ def main() -> None:
         show=not args.no_show,
         save_path=save_path,
         options=AnimationOptions(
+            figure_size=(6, 6),
             show_tip_trace=args.show_tip_trace,
             trace_window=1200000,
             track_bounds=track_bounds,

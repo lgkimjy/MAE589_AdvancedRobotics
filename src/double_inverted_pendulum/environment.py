@@ -34,6 +34,19 @@ def default_track_obstacles() -> list[Obstacle]:
     ]
 
 
+def staggered_track_obstacles() -> list[Obstacle]:
+    return [
+        BoxObstacle(center=(1.35, 0.55), width=0.55, height=0.32, color="#d66853"),
+        BoxObstacle(center=(1.85, -0.58), width=0.55, height=0.32, color="#d66853"),
+    ]
+
+
+def goal_under_obstacle() -> list[Obstacle]:
+    return default_track_obstacles() + [
+        BoxObstacle(center=(3.0, -0.50), width=0.90, height=0.65, color="#d66853"),
+    ]
+
+
 @dataclass
 class DoubleInvertedPendulumEnv:
     params: CartPoleParams = field(default_factory=default_params)

@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize, minimize_scalar
 
 from .controllers import wrap_to_pi
 from .dynamics import cartpole_dynamics
+from .environment import BoxObstacle, CircularObstacle, Obstacle
 from .model import CartPoleParams
 
 
@@ -51,6 +52,192 @@ def compute_feedforward_input(reference_state: np.ndarray, params: CartPoleParam
     return float(result.x)
 
 
+def optimize_trajectory_with_casadi_shooting(
+    initial_state: np.ndarray,
+    goal_state: np.ndarray,
+    params: CartPoleParams,
+    horizon_steps: int = 80,
+    dt: float = 0.04,
+    position_bounds: tuple[float, float] | None = None,
+    max_iter: int = 350,
+    obstacles: list[Obstacle] | None = None,
+    obstacle_clearance: float = 0.08,
+    obstacle_weight: float = 450.0,
+    obstacle_samples_per_link: int = 4,
+    restarts: int = 4,
+) -> TrajectoryPlan:
+    try:
+        import casadi as ca
+    except ImportError as exc:
+        raise ImportError("casadi is required for gradient-based shooting trajectory optimization.") from exc
+
+    x0 = np.asarray(initial_state, dtype=float)
+    x_goal = np.asarray(goal_state, dtype=float)
+    obstacles = [] if obstacles is None else obstacles
+    ref_state = build_swing_reference(x0, x_goal, horizon_steps)
+    ref_control = np.array([compute_feedforward_input(ref_state[k], params) for k in range(horizon_steps)], dtype=float)
+
+    q_path = np.diag([8.0, 0.0, 0.0, 0.35, 0.2, 0.2])
+    q_terminal = np.diag([85.0, 0.0, 0.0, 7.0, 4.0, 4.0])
+    angle_path_weight = 10.0
+    angle_terminal_weight = 180.0
+    control_weight = 0.0025
+    control_smooth_weight = 0.0008
+    track_weight = 650.0
+
+    def dynamics_symbolic(state: ca.MX, cart_force: ca.MX) -> ca.MX:
+        _x_pos, theta1, theta2, x_dot, theta1_dot, theta2_dot = state[0], state[1], state[2], state[3], state[4], state[5]
+
+        m0 = params.cart_mass
+        m1 = params.link1_mass
+        m2 = params.link2_mass
+        l1 = params.link1_length
+        l2 = params.link2_length
+        g = params.gravity
+
+        mass_matrix = ca.vertcat(
+            ca.horzcat(m0 + m1 + m2, (m1 + m2) * l1 * ca.cos(theta1), m2 * l2 * ca.cos(theta2)),
+            ca.horzcat((m1 + m2) * l1 * ca.cos(theta1), (m1 + m2) * l1**2, m2 * l1 * l2 * ca.cos(theta1 - theta2)),
+            ca.horzcat(m2 * l2 * ca.cos(theta2), m2 * l1 * l2 * ca.cos(theta1 - theta2), m2 * l2**2),
+        )
+        generalized_forces = ca.vertcat(
+            cart_force
+            - params.cart_damping * x_dot
+            + (m1 + m2) * l1 * ca.sin(theta1) * theta1_dot**2
+            + m2 * l2 * ca.sin(theta2) * theta2_dot**2,
+            -params.joint1_damping * theta1_dot
+            - m2 * l1 * l2 * ca.sin(theta1 - theta2) * theta2_dot**2
+            + (m1 + m2) * g * l1 * ca.sin(theta1),
+            -params.joint2_damping * theta2_dot
+            + m2 * l1 * l2 * ca.sin(theta1 - theta2) * theta1_dot**2
+            + m2 * g * l2 * ca.sin(theta2),
+        )
+        accelerations = ca.solve(mass_matrix, generalized_forces)
+        return ca.vertcat(x_dot, theta1_dot, theta2_dot, accelerations[0], accelerations[1], accelerations[2])
+
+    def rk4_step(state: ca.MX, cart_force: ca.MX) -> ca.MX:
+        k1 = dynamics_symbolic(state, cart_force)
+        k2 = dynamics_symbolic(state + 0.5 * dt * k1, cart_force)
+        k3 = dynamics_symbolic(state + 0.5 * dt * k2, cart_force)
+        k4 = dynamics_symbolic(state + dt * k3, cart_force)
+        return state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+    def angular_cost(theta: ca.MX, theta_ref: float) -> ca.MX:
+        return 1.0 - ca.cos(theta - theta_ref)
+
+    def smooth_hinge(value: ca.MX, sharpness: float = 12.0) -> ca.MX:
+        return ca.log(1.0 + ca.exp(sharpness * value)) / sharpness
+
+    def link_sample_points(state: ca.MX) -> list[ca.MX]:
+        x_pos, theta1, theta2 = state[0], state[1], state[2]
+        l1 = params.link1_length
+        l2 = params.link2_length
+        joint1 = ca.vertcat(x_pos + l1 * ca.sin(theta1), l1 * ca.cos(theta1))
+        points = [ca.vertcat(x_pos, 0.0)]
+        sample_count = max(1, int(obstacle_samples_per_link))
+        for alpha in np.linspace(1.0 / sample_count, 1.0, sample_count):
+            points.append(ca.vertcat(x_pos + alpha * l1 * ca.sin(theta1), alpha * l1 * ca.cos(theta1)))
+        for alpha in np.linspace(1.0 / sample_count, 1.0, sample_count):
+            points.append(
+                ca.vertcat(
+                    joint1[0] + alpha * l2 * ca.sin(theta2),
+                    joint1[1] + alpha * l2 * ca.cos(theta2),
+                )
+            )
+        return points
+
+    def obstacle_cost(state: ca.MX) -> ca.MX:
+        if not obstacles:
+            return 0
+
+        cost = 0
+        for point in link_sample_points(state):
+            for obstacle in obstacles:
+                dx = point[0] - obstacle.center[0]
+                dy = point[1] - obstacle.center[1]
+                if isinstance(obstacle, CircularObstacle):
+                    safe_radius = max(float(obstacle.radius + obstacle_clearance), 1e-6)
+                    intrusion_field = 1.0 - (dx**2 + dy**2) / safe_radius**2
+                elif isinstance(obstacle, BoxObstacle):
+                    safe_half_width = max(float(0.5 * obstacle.width + obstacle_clearance), 1e-6)
+                    safe_half_height = max(float(0.5 * obstacle.height + obstacle_clearance), 1e-6)
+                    intrusion_field = 1.0 - (dx / safe_half_width) ** 2 - (dy / safe_half_height) ** 2
+                else:
+                    continue
+                cost += obstacle_weight * smooth_hinge(intrusion_field) ** 2
+        return cost
+
+    u_var = ca.MX.sym("u", horizon_steps)
+    state = ca.DM(x0)
+    states = [state]
+    objective = 0
+    for k in range(horizon_steps):
+        u_k = u_var[k]
+        dx = state - ref_state[k]
+        objective += ca.mtimes([dx.T, q_path, dx])
+        objective += angle_path_weight * angular_cost(state[1], ref_state[k, 1])
+        objective += angle_path_weight * angular_cost(state[2], ref_state[k, 2])
+        objective += control_weight * (u_k - ref_control[k]) ** 2
+        objective += obstacle_cost(state)
+        if position_bounds is not None:
+            objective += track_weight * smooth_hinge(position_bounds[0] - state[0]) ** 2
+            objective += track_weight * smooth_hinge(state[0] - position_bounds[1]) ** 2
+        if k > 0:
+            objective += control_smooth_weight * (u_k - u_var[k - 1]) ** 2
+        state = rk4_step(state, u_k)
+        states.append(state)
+
+    terminal_error = states[-1] - x_goal
+    objective += ca.mtimes([terminal_error.T, q_terminal, terminal_error])
+    objective += angle_terminal_weight * angular_cost(states[-1][1], x_goal[1])
+    objective += angle_terminal_weight * angular_cost(states[-1][2], x_goal[2])
+    objective += obstacle_cost(states[-1])
+
+    rollout_expr = ca.horzcat(*states).T
+    objective_fun = ca.Function("shooting_objective", [u_var], [objective, ca.gradient(objective, u_var)])
+    rollout_fun = ca.Function("shooting_rollout", [u_var], [rollout_expr])
+
+    def evaluate(candidate: np.ndarray) -> tuple[float, np.ndarray]:
+        value, grad = objective_fun(candidate)
+        return float(value), np.asarray(grad, dtype=float).reshape(-1)
+
+    tau = np.linspace(0.0, 1.0, horizon_steps, dtype=float)
+    guesses = [
+        ref_control,
+        np.zeros(horizon_steps, dtype=float),
+        0.45 * params.force_limit * np.sin(2.0 * np.pi * tau),
+        -0.45 * params.force_limit * np.sin(2.0 * np.pi * tau),
+        0.55 * params.force_limit * np.sin(3.0 * np.pi * tau),
+    ][: max(1, int(restarts))]
+
+    best_control = np.asarray(guesses[0], dtype=float)
+    best_value, _ = evaluate(best_control)
+    bounds = [(-params.force_limit, params.force_limit)] * horizon_steps
+    for guess in guesses:
+        result = minimize(
+            evaluate,
+            np.clip(np.asarray(guess, dtype=float), -params.force_limit, params.force_limit),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=bounds,
+            options={"maxiter": max_iter, "ftol": 1e-8, "maxls": 40},
+        )
+        if np.isfinite(result.fun) and float(result.fun) < best_value:
+            best_value = float(result.fun)
+            best_control = np.asarray(result.x, dtype=float)
+
+    state_sol = np.asarray(rollout_fun(best_control), dtype=float)
+    time = np.arange(horizon_steps + 1, dtype=float) * dt
+    ref_control_full = np.concatenate([ref_control, ref_control[-1:]])
+    return TrajectoryPlan(
+        time=time,
+        state=state_sol,
+        control=np.concatenate([best_control, best_control[-1:]]),
+        reference_state=ref_state,
+        reference_control=ref_control_full,
+    )
+
+
 def optimize_trajectory_with_casadi(
     initial_state: np.ndarray,
     goal_state: np.ndarray,
@@ -59,6 +246,10 @@ def optimize_trajectory_with_casadi(
     dt: float = 0.05,
     position_bounds: tuple[float, float] | None = None,
     max_iter: int = 2000,
+    obstacles: list[Obstacle] | None = None,
+    obstacle_clearance: float = 0.08,
+    obstacle_weight: float = 450.0,
+    obstacle_samples_per_link: int = 4,
 ) -> TrajectoryPlan:
     try:
         import casadi as ca
@@ -67,6 +258,7 @@ def optimize_trajectory_with_casadi(
 
     x0 = np.asarray(initial_state, dtype=float)
     x_goal = np.asarray(goal_state, dtype=float)
+    obstacles = [] if obstacles is None else obstacles
     ref_state = build_swing_reference(x0, x_goal, horizon_steps)
     ref_control = np.array([compute_feedforward_input(ref_state[k], params) for k in range(horizon_steps)], dtype=float)
 
@@ -122,6 +314,48 @@ def optimize_trajectory_with_casadi(
     def angular_cost(theta: ca.MX, theta_ref: float) -> ca.MX:
         return 1.0 - ca.cos(theta - theta_ref)
 
+    def link_sample_points(state: ca.MX) -> list[ca.MX]:
+        x_pos, theta1, theta2 = state[0], state[1], state[2]
+        l1 = params.link1_length
+        l2 = params.link2_length
+        joint1 = ca.vertcat(x_pos + l1 * ca.sin(theta1), l1 * ca.cos(theta1))
+        points = [ca.vertcat(x_pos, 0.0)]
+        sample_count = max(1, int(obstacle_samples_per_link))
+        for alpha in np.linspace(1.0 / sample_count, 1.0, sample_count):
+            points.append(ca.vertcat(x_pos + alpha * l1 * ca.sin(theta1), alpha * l1 * ca.cos(theta1)))
+        for alpha in np.linspace(1.0 / sample_count, 1.0, sample_count):
+            points.append(
+                ca.vertcat(
+                    joint1[0] + alpha * l2 * ca.sin(theta2),
+                    joint1[1] + alpha * l2 * ca.cos(theta2),
+                )
+            )
+        return points
+
+    def smooth_hinge(value: ca.MX, sharpness: float = 12.0) -> ca.MX:
+        return ca.log(1.0 + ca.exp(sharpness * value)) / sharpness
+
+    def obstacle_cost(state: ca.MX) -> ca.MX:
+        if not obstacles:
+            return 0
+
+        cost = 0
+        for point in link_sample_points(state):
+            for obstacle in obstacles:
+                dx = point[0] - obstacle.center[0]
+                dy = point[1] - obstacle.center[1]
+                if isinstance(obstacle, CircularObstacle):
+                    safe_radius = max(float(obstacle.radius + obstacle_clearance), 1e-6)
+                    intrusion_field = 1.0 - (dx**2 + dy**2) / safe_radius**2
+                elif isinstance(obstacle, BoxObstacle):
+                    safe_half_width = max(float(0.5 * obstacle.width + obstacle_clearance), 1e-6)
+                    safe_half_height = max(float(0.5 * obstacle.height + obstacle_clearance), 1e-6)
+                    intrusion_field = 1.0 - (dx / safe_half_width) ** 2 - (dy / safe_half_height) ** 2
+                else:
+                    continue
+                cost += obstacle_weight * smooth_hinge(intrusion_field) ** 2
+        return cost
+
     opti.subject_to(x_var[:, 0] == x0)
     opti.subject_to(opti.bounded(-params.force_limit, u_var, params.force_limit))
     if position_bounds is not None:
@@ -139,6 +373,7 @@ def optimize_trajectory_with_casadi(
         objective += angle_path_weight * angular_cost(x_k[1], ref_state[k, 1])
         objective += angle_path_weight * angular_cost(x_k[2], ref_state[k, 2])
         objective += control_weight * (u_k - ref_control[k]) ** 2
+        objective += obstacle_cost(x_k)
         if k > 0:
             objective += control_smooth_weight * (u_k - u_var[0, k - 1]) ** 2
 
@@ -146,6 +381,7 @@ def optimize_trajectory_with_casadi(
     objective += ca.mtimes([terminal_error.T, q_terminal, terminal_error])
     objective += angle_terminal_weight * angular_cost(x_var[1, -1], x_goal[1])
     objective += angle_terminal_weight * angular_cost(x_var[2, -1], x_goal[2])
+    objective += obstacle_cost(x_var[:, -1])
     opti.minimize(objective)
 
     opti.set_initial(x_var, ref_state.T)
@@ -188,7 +424,13 @@ def optimize_trajectory_with_casadi(
         if solver_name == "sqpmethod":
             debug_state = np.asarray(opti.debug.value(x_var), dtype=float).T
             debug_control = np.asarray(opti.debug.value(u_var), dtype=float).reshape(-1)
-            if np.all(np.isfinite(debug_state)) and np.all(np.isfinite(debug_control)):
+            debug_is_usable = (
+                np.all(np.isfinite(debug_state))
+                and np.all(np.isfinite(debug_control))
+                and np.max(np.abs(debug_state)) < 1.0e4
+                and np.max(np.abs(debug_control)) <= 1.25 * params.force_limit
+            )
+            if debug_is_usable:
                 time = np.arange(horizon_steps + 1, dtype=float) * dt
                 ref_control_full = np.concatenate([ref_control, ref_control[-1:]])
                 return TrajectoryPlan(
@@ -211,6 +453,8 @@ def optimize_trajectory_with_casadi(
         reference_state=ref_state,
         reference_control=ref_control_full,
     )
+
+
 @dataclass
 class MPPIController:
     params: CartPoleParams

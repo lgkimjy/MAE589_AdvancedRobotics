@@ -36,6 +36,21 @@ python -m pip install -e '.[casadi]'
 - `scripts/run_spring_mppi_demo.py`: spring pendulum cart-pole MPPI demo
 - `scripts/run_spring_pendulum_demo.py`: spring pendulum cart-pole passive demo
 
+Quick trajectory-optimization run from the repository root:
+
+```bash
+python scripts/run_casadi_trajopt_demo.py --no-show --show-plan
+```
+
+Obstacle-aware swing-up demo:
+
+```bash
+python scripts/run_casadi_trajopt_demo.py --obstacle-avoidance --obstacle-layout goal-under --optimizer direct --use-position-bounds --no-show --save outputs/trajopt_goal_under_obstacle_avoidance_demo.mp4 --horizon-steps 80 --dt 0.04 --initial-angle-offset 0.08 --obstacle-weight 1800 --obstacle-clearance 0.24 --hide-smoothstep-reference
+```
+
+The direct CasADi backend is most reliable with IPOPT available. If the script reports that IPOPT is unavailable, install or upgrade the optional CasADi dependency with the same Python interpreter used to run the script.
+If an older CasADi is being imported from `PYTHONPATH`, run the demo with `env -u PYTHONPATH python ...` so the active environment's CasADi package is used.
+
 ## Model
 
 - The state contains cart position, two link angles, and their velocities.
