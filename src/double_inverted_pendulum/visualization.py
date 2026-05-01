@@ -26,7 +26,10 @@ class AnimationOptions:
     track_limit: float | None = None
     track_bounds: tuple[float, float] | None = None
     goal_x: float | None = None
-    trace_window: int = 80
+    trace_window: int | None = 80
+    fade_tip_trace: bool = True
+    show_info_text: bool = True
+    dpi: int = 120
     #: Optional reference trajectory (e.g. cubic smoothstep warm-start for trajopt): drawn as a static tip path.
     reference_state: np.ndarray | None = None
 
@@ -180,6 +183,9 @@ def animate_simulation(
     force_text = ax.text(0.02, 0.88, "", transform=ax.transAxes, va="top", bbox=text_box)
     position_text = ax.text(0.02, 0.80, "", transform=ax.transAxes, va="top", bbox=text_box)
     goal_text = ax.text(0.02, 0.72, "", transform=ax.transAxes, va="top", bbox=text_box)
+    if not opts.show_info_text:
+        for artist in (time_text, force_text, position_text, goal_text):
+            artist.set_visible(False)
 
     if opts.goal_x is not None:
         goal_height = params.link1_length + params.link2_length
@@ -251,11 +257,17 @@ def animate_simulation(
         joint1_marker.set_data([joint1_tip[0]], [joint1_tip[1]])
         tip_marker.set_data([joint2_tip[0]], [joint2_tip[1]])
         if opts.show_tip_trace:
-            trace_start_display_idx = max(0, display_idx - opts.trace_window + 1)
+            if opts.trace_window is None:
+                trace_start_display_idx = 0
+            else:
+                trace_start_display_idx = max(0, display_idx - opts.trace_window + 1)
             trace = tip_path[visible_indices[trace_start_display_idx:]]
             if trace.shape[0] >= 2:
                 segments = np.stack([trace[:-1], trace[1:]], axis=1)
-                alpha = np.linspace(0.06, 0.95, segments.shape[0]) ** 1.15
+                if opts.fade_tip_trace:
+                    alpha = np.linspace(0.06, 0.95, segments.shape[0]) ** 1.15
+                else:
+                    alpha = np.full(segments.shape[0], 0.9)
                 colors = np.column_stack(
                     [
                         np.full(segments.shape[0], 1.0),
@@ -293,10 +305,11 @@ def animate_simulation(
             prediction_cart_line.set_data([], [])
             prediction_tip_line.set_data([], [])
             prediction_sample_collection.set_segments([])
-        time_text.set_text(f"t = {sim_result.time[frame_idx]:.2f} s")
-        force_text.set_text(f"cart force = {sim_result.control[frame_idx]:.2f} N")
-        position_text.set_text(f"cart x = {cart[0]:.2f} m")
-        goal_text.set_text("" if opts.goal_x is None else f"goal x = {opts.goal_x:.2f} m")
+        if opts.show_info_text:
+            time_text.set_text(f"t = {sim_result.time[frame_idx]:.2f} s")
+            force_text.set_text(f"cart force = {sim_result.control[frame_idx]:.2f} N")
+            position_text.set_text(f"cart x = {cart[0]:.2f} m")
+            goal_text.set_text("" if opts.goal_x is None else f"goal x = {opts.goal_x:.2f} m")
         return (
             cart_patch,
             rod1_line,
@@ -330,9 +343,9 @@ def animate_simulation(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         suffix = output_path.suffix.lower()
         if suffix == ".gif":
-            anim.save(output_path, writer="pillow", fps=opts.fps)
+            anim.save(output_path, writer="pillow", fps=opts.fps, dpi=opts.dpi)
         elif suffix == ".mp4":
-            anim.save(output_path, writer="ffmpeg", fps=opts.fps)
+            anim.save(output_path, writer="ffmpeg", fps=opts.fps, dpi=opts.dpi)
         else:
             raise ValueError(f"Unsupported animation format: {suffix}")
 

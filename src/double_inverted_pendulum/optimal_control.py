@@ -469,6 +469,11 @@ class MPPIController:
     temperature: float = 6.0
     action_clip: float | None = None
     position_bounds: tuple[float, float] | None = None
+    obstacles: list[Obstacle] | tuple[Obstacle, ...] = field(default_factory=tuple)
+    obstacle_clearance: float = 0.20
+    obstacle_weight: float = 1200.0
+    obstacle_samples_per_link: int = 4
+    sample_from_reference: bool = False
     action_repeat: int = 2
     goal_ramp_time: float = 8.0
     nominal_sequence: np.ndarray = field(default_factory=lambda: np.zeros(28, dtype=float))
@@ -485,19 +490,22 @@ class MPPIController:
             self.reference_control = np.asarray(self.reference_control, dtype=float)
         if self.action_clip is None:
             self.action_clip = self.params.force_limit
+        self.obstacles = tuple(self.obstacles)
+        self.obstacle_samples_per_link = max(1, int(self.obstacle_samples_per_link))
         if self.nominal_sequence.shape[0] != self.horizon:
             self.nominal_sequence = np.zeros(self.horizon, dtype=float)
         self._rng = np.random.default_rng(18)
 
     def __call__(self, time: float, state: np.ndarray) -> float:
         state = np.asarray(state, dtype=float)
+        ref_states, ref_controls = self._reference_rollout(float(time), state)
+        base_sequence = ref_controls if self.sample_from_reference else self.nominal_sequence
         coarse_horizon = int(np.ceil(self.horizon / max(1, self.action_repeat)))
-        coarse_nominal = self.nominal_sequence[:: max(1, self.action_repeat)][:coarse_horizon]
+        coarse_nominal = base_sequence[:: max(1, self.action_repeat)][:coarse_horizon]
         noise = self._rng.normal(0.0, self.noise_sigma, size=(self.num_samples, coarse_horizon))
         candidate_coarse = np.clip(coarse_nominal[None, :] + noise, -self.action_clip, self.action_clip)
         candidate_u = np.repeat(candidate_coarse, max(1, self.action_repeat), axis=1)[:, : self.horizon]
         sampled_states = self._predict_states_batch(state, candidate_u)
-        ref_states, ref_controls = self._reference_rollout(float(time), state)
         costs = self._trajectory_cost_batch(sampled_states, candidate_u, ref_states, ref_controls)
         beta = float(np.min(costs))
         weights = np.exp(-(costs - beta) / max(self.temperature, 1e-6))
@@ -543,6 +551,9 @@ class MPPIController:
             cost += np.sum(160.0 * np.maximum(0.0, 0.28 - lower_margin) ** 2, axis=1)
             cost += np.sum(160.0 * np.maximum(0.0, 0.28 - upper_margin) ** 2, axis=1)
 
+        if self.obstacles:
+            cost += self._obstacle_cost_batch(states)
+
         terminal = rollout[:, -1, :]
         terminal_ref = reference_states[-1]
         terminal_angle1 = wrap_to_pi(terminal[:, 1] - terminal_ref[1])
@@ -560,6 +571,54 @@ class MPPIController:
         cost += 18.0 * terminal_rates[:, 0] ** 2 + 12.0 * terminal_rates[:, 1] ** 2 + 12.0 * terminal_rates[:, 2] ** 2
         cost += 400.0 * (terminal[:, 0] - self.goal_state[0]) ** 2
         return cost.astype(float)
+
+    def _obstacle_cost_batch(self, states: np.ndarray) -> np.ndarray:
+        points = self._body_sample_points_batch(states)
+        cost = np.zeros(states.shape[0], dtype=float)
+        for obstacle in self.obstacles:
+            center = np.asarray(obstacle.center, dtype=float)
+            delta = points - center
+            if isinstance(obstacle, CircularObstacle):
+                clearance = np.linalg.norm(delta, axis=-1) - float(obstacle.radius)
+            elif isinstance(obstacle, BoxObstacle):
+                half_size = np.array([0.5 * obstacle.width, 0.5 * obstacle.height], dtype=float)
+                outside = np.abs(delta) - half_size
+                outside_distance = np.linalg.norm(np.maximum(outside, 0.0), axis=-1)
+                inside_distance = np.minimum(np.maximum(outside[..., 0], outside[..., 1]), 0.0)
+                clearance = outside_distance + inside_distance
+            else:
+                raise TypeError(f"Unsupported obstacle type: {type(obstacle)!r}")
+
+            intrusion = np.maximum(0.0, float(self.obstacle_clearance) - clearance)
+            cost += float(self.obstacle_weight) * np.sum(intrusion**2, axis=(1, 2))
+        return cost
+
+    def _body_sample_points_batch(self, states: np.ndarray) -> np.ndarray:
+        x_pos = states[:, :, 0]
+        theta1 = states[:, :, 1]
+        theta2 = states[:, :, 2]
+        cart = np.stack((x_pos, np.zeros_like(x_pos)), axis=-1)
+        joint1 = cart + np.stack(
+            (
+                self.params.link1_length * np.sin(theta1),
+                self.params.link1_length * np.cos(theta1),
+            ),
+            axis=-1,
+        )
+        link2_vector = np.stack(
+            (
+                self.params.link2_length * np.sin(theta2),
+                self.params.link2_length * np.cos(theta2),
+            ),
+            axis=-1,
+        )
+
+        points = [cart]
+        for alpha in np.linspace(1.0 / self.obstacle_samples_per_link, 1.0, self.obstacle_samples_per_link):
+            points.append(cart + alpha * (joint1 - cart))
+        for alpha in np.linspace(1.0 / self.obstacle_samples_per_link, 1.0, self.obstacle_samples_per_link):
+            points.append(joint1 + alpha * link2_vector)
+        return np.stack(points, axis=2)
 
     def _predict_states(self, state: np.ndarray, controls: np.ndarray) -> np.ndarray:
         x = np.asarray(state, dtype=float).copy()

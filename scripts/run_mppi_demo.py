@@ -6,7 +6,13 @@ import os
 from pathlib import Path
 import tempfile
 
-from double_inverted_pendulum.environment import BoxObstacle, DoubleInvertedPendulumEnv
+from double_inverted_pendulum.collision import minimum_obstacle_clearance
+from double_inverted_pendulum.environment import (
+    DoubleInvertedPendulumEnv,
+    default_track_obstacles,
+    goal_under_obstacle,
+    staggered_track_obstacles,
+)
 from double_inverted_pendulum.model import default_params, downright_state, upright_state
 from double_inverted_pendulum.optimal_control import MPPIController
 from double_inverted_pendulum.visualization import AnimationOptions, animate_simulation
@@ -22,8 +28,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hide-prediction", dest="show_prediction", action="store_false", help="Hide the MPPI predicted rollout.")
     parser.add_argument("--initial-angle-offset", type=float, default=0.00, help="Small offset from the exact downright pose in radians.")
     parser.add_argument("--sim-time", type=float, default=40.0, help="Simulation time for swing-up and terminal settling.")
+    parser.add_argument(
+        "--obstacle-layout",
+        choices=("none", "default", "staggered", "goal-under"),
+        default="default",
+        help="Obstacle layout used by both the MPPI cost and animation.",
+    )
+    parser.add_argument("--obstacle-clearance", type=float, default=0.24, help="Safety margin used by the MPPI obstacle cost.")
+    parser.add_argument("--obstacle-weight", type=float, default=1800.0, help="Weight on the MPPI soft obstacle cost.")
+    parser.add_argument("--obstacle-samples-per-link", type=int, default=4, help="Number of obstacle sample points per pendulum link.")
     parser.set_defaults(show_tip_trace=True, show_prediction=True)
     return parser.parse_args()
+
+
+def build_obstacles(layout: str):
+    if layout == "none":
+        return []
+    if layout == "staggered":
+        return staggered_track_obstacles()
+    if layout == "goal-under":
+        return goal_under_obstacle()
+    return default_track_obstacles()
 
 
 def main() -> None:
@@ -51,10 +76,7 @@ def main() -> None:
         enforce_link_limits=True,
         initial_state=downright_state(args.initial_angle_offset),
     )
-    obstacles = [
-        BoxObstacle(center=(1.4, 0.55), width=0.75, height=0.4, color="#d66853"),
-        BoxObstacle(center=(1.4, -0.55), width=0.75, height=0.4, color="#d66853"),
-    ]
+    obstacles = build_obstacles(args.obstacle_layout)
     env.obstacles = obstacles
 
     controller = MPPIController(
@@ -67,6 +89,10 @@ def main() -> None:
         temperature=10.0,
         action_repeat=1,
         position_bounds=track_bounds,
+        obstacles=obstacles,
+        obstacle_clearance=args.obstacle_clearance,
+        obstacle_weight=args.obstacle_weight,
+        obstacle_samples_per_link=args.obstacle_samples_per_link,
     )
     sim = env.rollout(controller)
 
@@ -78,6 +104,9 @@ def main() -> None:
     print(sim.state[-1])
     print("\nPeak control magnitude:")
     print(abs(sim.control).max())
+    if obstacles:
+        print("\nMinimum obstacle clearance [m]:")
+        print(minimum_obstacle_clearance(sim.state, params, obstacles, samples_per_link=args.obstacle_samples_per_link))
 
     save_path = args.save
     if args.no_show and save_path is None:
