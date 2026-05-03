@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Nonlinear trajectory optimization, LQR stabilization, and MPPI demonstrations for a double inverted pendulum cart."
+    />
+    <meta property="og:title" content="Double Inverted Pendulum Swing-Up Control" />
+    <meta
+      property="og:description"
+      content="A MAE 589 project page for trajectory optimization, obstacle-aware planning, LQR stabilization, and MPPI for a double inverted pendulum cart."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./static/images/mppi_rollout_10s.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>Double Inverted Pendulum Swing-Up Control</title>
+    <link rel="stylesheet" href="./static/css/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Primary navigation">
+        <a class="brand" href="#">MAE 589</a>
+        <div class="nav-links">
+          <a href="#method">Method</a>
+          <a href="#results">Results</a>
+          <a href="./static/pdfs/final_report.pdf" target="_blank" rel="noreferrer">Paper</a>
+        </div>
+      </nav>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Advanced Robotics Course Project</p>
+          <h1>Nonlinear Swing-Up Control for a Double Inverted Pendulum Cart</h1>
+          <p class="lede">
+            A compact project page for the trajectory-optimization, LQR stabilization, obstacle-aware planning, and MPPI experiments in this
+            repository.
+          </p>
+          <div class="authors">
+            <a href="https://lgkimjy.github.io" target="_blank" rel="noreferrer">JunYoung Kim</a>
+            <span>North Carolina State University</span>
+          </div>
+          <div class="actions" aria-label="Project links">
+            <a class="button primary" href="https://github.com/lgkimjy/MAE589_AdvancedRobotics" target="_blank" rel="noreferrer">Code</a>
+            <a class="button" href="#results">Results</a>
+            <a class="button" href="./static/pdfs/final_report.pdf" target="_blank" rel="noreferrer">Paper</a>
+          </div>
+        </div>
+
+        <div class="hero-media" aria-label="Obstacle-aware swing-up video">
+          <video autoplay muted loop playsinline poster="./static/images/trajopt_obstacle_plan.png">
+            <source src="./static/videos/obstacle_lqr_swingup.mp4" type="video/mp4" />
+          </video>
+        </div>
+      </section>
+    </header>
+
+    <main>
+      <section class="section summary" id="abstract">
+        <div class="section-heading">
+          <p class="eyebrow">Project Summary</p>
+          <h2>Global motion generation first, local feedback second.</h2>
+        </div>
+        <div class="copy-block">
+          <p>
+            The double inverted pendulum cart is a strongly nonlinear, underactuated benchmark: a single horizontal force must move the cart
+            while indirectly coordinating two pendulum links. This project treats swing-up as a global optimal-control problem and terminal balancing
+            as a local feedback problem.
+          </p>
+          <p>
+            The current implementation combines direct nonlinear trajectory optimization, workspace obstacle penalties over sampled body points, and
+            LQR-based terminal stabilization. Additional MPPI experiments explore receding-horizon sampling control and reference-guided rollout
+            behavior under the same cart-pendulum model.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="method">
+        <div class="section-heading narrow">
+          <p class="eyebrow">Method</p>
+          <h2>One model, several control viewpoints.</h2>
+        </div>
+        <div class="method-grid">
+          <article class="method-item">
+            <span class="method-index">01</span>
+            <h3>Trajectory Optimization</h3>
+            <p>
+              A finite-horizon nonlinear program plans a dynamically feasible swing-up trajectory using the full cart double-pendulum dynamics and
+              bounded cart force.
+            </p>
+          </article>
+          <article class="method-item">
+            <span class="method-index">02</span>
+            <h3>LQR Stabilization</h3>
+            <p>
+              Local Riccati feedback is used where linearization is meaningful: tracking the planned motion and holding the unstable upright
+              equilibrium after arrival.
+            </p>
+          </article>
+          <article class="method-item">
+            <span class="method-index">03</span>
+            <h3>Obstacle-Aware Costs</h3>
+            <p>
+              Smooth penalties are evaluated on cart and link sample points so the optimizer receives a geometric signal when the body approaches
+              rectangular obstacles.
+            </p>
+          </article>
+          <article class="method-item">
+            <span class="method-index">04</span>
+            <h3>MPPI Rollouts</h3>
+            <p>
+              Sampling-based receding-horizon control tests whether randomized force sequences can discover swing-up behavior under shaped costs and
+              reference guidance.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section results" id="results">
+        <div class="section-heading">
+          <p class="eyebrow">Results</p>
+          <h2>Representative simulation outputs.</h2>
+        </div>
+
+        <div class="video-grid">
+          <article class="result-card feature nominal">
+            <video autoplay muted loop playsinline poster="./static/images/trajopt_nominal_plan.png">
+              <source src="./static/videos/nominal_swingup.mp4" type="video/mp4" />
+            </video>
+            <div class="result-copy">
+              <p class="label">Nominal swing-up</p>
+              <h3>Direct trajectory optimization without workspace obstacles.</h3>
+              <p>
+                The optimizer finds a large-amplitude maneuver that moves the underactuated system from the downward configuration to the upright
+                neighborhood.
+              </p>
+            </div>
+          </article>
+
+          <article class="result-card feature">
+            <div class="media-stack">
+              <video autoplay muted loop playsinline poster="./static/images/trajopt_obstacle_plan.png" data-sync-group="obstacle" data-sync-role="master">
+                <source src="./static/videos/obstacle_lqr_swingup.mp4" type="video/mp4" />
+              </video>
+              <video autoplay muted loop playsinline poster="./static/images/obstacle_penalty_geometry.png" data-sync-group="obstacle" data-sync-role="follower">
+                <source src="./static/videos/obstacle_penalty_geometry.mp4" type="video/mp4" />
+              </video>
+            </div>
+            <div class="result-copy">
+              <p class="label">Obstacle-aware TO + LQR</p>
+              <h3>Planning reshapes the swing-up path, then feedback holds the terminal pose.</h3>
+              <p>
+                The sampled-body obstacle penalty changes the terminal approach while the LQR handoff damps the remaining motion near upright.
+              </p>
+            </div>
+          </article>
+
+          <article class="result-card">
+            <video autoplay muted loop playsinline poster="./static/images/mppi_rollout_10s.png">
+              <source src="./static/videos/mppi_reference_guided.mp4" type="video/mp4" />
+            </video>
+            <div class="result-copy">
+              <p class="label">Reference-guided MPPI</p>
+              <h3>Ten-second MPPI rollout with the receding horizon drawn at each step.</h3>
+              <p>
+                The yellow trace shows the realized end-tip rollout, while the overlaid prediction paths show the horizon used by MPPI to update the
+                next cart-force sequence.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section figures" id="figures">
+        <div class="section-heading">
+          <p class="eyebrow">Diagnostics</p>
+          <h2>Planning traces and penalty geometry.</h2>
+        </div>
+
+        <div class="figure-grid">
+          <figure>
+            <img src="./static/images/trajopt_obstacle_plan.png" alt="Obstacle-aware trajectory optimization plan" />
+            <figcaption>Obstacle-aware planned and executed paths with the LQR switching event.</figcaption>
+          </figure>
+          <figure>
+            <img src="./static/images/obstacle_penalty_geometry.png" alt="Obstacle penalty geometry over sampled body points" />
+            <figcaption>Sampled body points and the obstacle penalty signal used during planning.</figcaption>
+          </figure>
+          <figure>
+            <img src="./static/images/mppi_rollout_10s.png" alt="MPPI rollout trajectory over ten seconds" />
+            <figcaption>Reference-guided MPPI rollout trajectory under obstacle-aware costs.</figcaption>
+          </figure>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Project page draft for MAE 589 Advanced Robotics.</p>
+      <a href="https://github.com/lgkimjy/MAE589_AdvancedRobotics" target="_blank" rel="noreferrer">GitHub repository</a>
+    </footer>
+    <script>
+      (() => {
+        const groups = new Map();
+        document.querySelectorAll("video[data-sync-group]").forEach((video) => {
+          const groupName = video.dataset.syncGroup;
+          if (!groups.has(groupName)) {
+            groups.set(groupName, { followers: [] });
+          }
+          const group = groups.get(groupName);
+          if (video.dataset.syncRole === "master") {
+            group.master = video;
+          } else {
+            group.followers.push(video);
+          }
+        });
+
+        const finiteDuration = (video) => Number.isFinite(video.duration) && video.duration > 0;
+
+        groups.forEach(({ master, followers }) => {
+          if (!master || followers.length === 0) {
+            return;
+          }
+
+          const syncFollowers = () => {
+            if (!finiteDuration(master)) {
+              return;
+            }
+            followers.forEach((follower) => {
+              if (!finiteDuration(follower)) {
+                return;
+              }
+              const targetTime = (master.currentTime / master.duration) * follower.duration;
+              if (Math.abs(follower.currentTime - targetTime) > 0.08) {
+                follower.currentTime = targetTime;
+              }
+              follower.playbackRate = master.playbackRate;
+              if (!master.paused && follower.paused) {
+                follower.play().catch(() => {});
+              }
+            });
+          };
+
+          ["play", "seeked", "ratechange", "loadedmetadata"].forEach((eventName) => {
+            master.addEventListener(eventName, syncFollowers);
+          });
+          followers.forEach((follower) => follower.addEventListener("loadedmetadata", syncFollowers));
+          window.setInterval(syncFollowers, 250);
+        });
+      })();
+    </script>
+  </body>
+</html>
