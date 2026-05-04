@@ -61,6 +61,7 @@ from double_inverted_pendulum.model import CartPoleParams, default_params, downr
 from double_inverted_pendulum.optimal_control import TrajectoryPlan, optimize_trajectory_with_casadi
 from double_inverted_pendulum.simulation import SimulationResult, rollout_open_loop
 from double_inverted_pendulum.visualization import AnimationOptions, animate_simulation
+from scripts.visualize_obstacle_avoidance_meaning import save_obstacle_explanation_video
 
 
 @dataclass(frozen=True)
@@ -155,11 +156,37 @@ def run_case(config: PaperRunConfig) -> None:
         sim = SimulationResult(time=plan.time, state=plan.state, control=plan.control)
 
     save_data(config, params, plan, sim, obstacles, switch_time)
+    cleanup_legacy_outputs(config.output_dir)
     save_plan_figure(config, params, goal_state, plan, sim, obstacles, switch_time)
     save_time_series_plan_figure(config, params, plan, sim, switch_time)
     animation_reference_state = plan.reference_state if not config.obstacles else None
     save_animations(config, params, goal_state, sim, obstacles, animation_reference_state)
+    save_obstacle_explanation_video(
+        time=sim.time,
+        state=sim.state,
+        obstacles=obstacles,
+        output_path=config.output_dir / "obstacle_penalty_geometry.mp4",
+        clearance=config.obstacle_clearance,
+        weight=config.obstacle_weight,
+        samples_per_link=config.obstacle_samples_per_link,
+        fps=30,
+        track_bounds=config.track_bounds,
+        goal_x=goal_state[0],
+    )
     print_summary(config, params, goal_state, plan, sim, obstacles, switch_time)
+
+
+def cleanup_legacy_outputs(output_dir: Path) -> None:
+    for filename in (
+        "traj_plan2.pdf",
+        "traj_plan2.svg",
+        "traj_plan2.png",
+        "trajopt_plan.png",
+        "trajopt_plan2.png",
+    ):
+        path = output_dir / filename
+        if path.exists():
+            path.unlink()
 
 
 def save_data(
@@ -299,7 +326,7 @@ def save_plan_figure(
     deduplicate_legend(ax_x)
     deduplicate_legend(ax_u)
 
-    for suffix in ("pdf", "svg", "png"):
+    for suffix in ("pdf", "svg"):
         fig.savefig(config.output_dir / f"trajopt_plan.{suffix}", dpi=300)
     plt.close(fig)
 
@@ -356,7 +383,7 @@ def save_time_series_plan_figure(
 ) -> None:
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(3, 1, figsize=(8.0, 8.0), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(3, 1, figsize=(8.0, 5.8), sharex=True, constrained_layout=True)
     time = plan.time
     show_reference = not config.obstacles
 
@@ -411,8 +438,8 @@ def save_time_series_plan_figure(
         axis.grid(True, alpha=0.25)
         deduplicate_legend(axis)
 
-    for suffix in ("pdf", "svg", "png"):
-        fig.savefig(config.output_dir / f"traj_plan2.{suffix}", dpi=300)
+    for suffix in ("pdf", "svg"):
+        fig.savefig(config.output_dir / f"trajopt_plan2.{suffix}", dpi=300)
     plt.close(fig)
 
 
@@ -489,7 +516,7 @@ def print_summary(
 def no_obstacle_case() -> PaperRunConfig:
     return PaperRunConfig(
         name="run1",
-        output_dir=REPO_ROOT / "output/run1",
+        output_dir=REPO_ROOT / "outputs/run1",
         track_bounds=(-1.5, 5.5),
         obstacles=(),
         stabilize=False,
@@ -499,7 +526,7 @@ def no_obstacle_case() -> PaperRunConfig:
 def paired_obstacle_case() -> PaperRunConfig:
     return PaperRunConfig(
         name="run2",
-        output_dir=REPO_ROOT / "output/run2",
+        output_dir=REPO_ROOT / "outputs/run2",
         track_bounds=(-2.5, 6.5),
         obstacles=tuple(default_track_obstacles()),
         stabilize=True,
@@ -509,7 +536,7 @@ def paired_obstacle_case() -> PaperRunConfig:
 def goal_under_obstacle_case() -> PaperRunConfig:
     return PaperRunConfig(
         name="run3",
-        output_dir=REPO_ROOT / "output/run3",
+        output_dir=REPO_ROOT / "outputs/run3",
         track_bounds=(-2.5, 6.5),
         obstacles=tuple(goal_under_obstacle()),
         stabilize=True,

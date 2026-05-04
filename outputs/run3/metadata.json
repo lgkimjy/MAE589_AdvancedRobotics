@@ -1,0 +1,93 @@
+{
+  "config": {
+    "name": "run3",
+    "output_dir": "/Users/junyoungkim/hierlab_ws/ws_coursework/MAE589_AdvancedRobotics/outputs/run3",
+    "track_bounds": [
+      -2.5,
+      6.5
+    ],
+    "obstacles": [
+      {
+        "center": [
+          1.4,
+          0.55
+        ],
+        "width": 0.55,
+        "height": 0.32,
+        "color": "#d66853"
+      },
+      {
+        "center": [
+          1.4,
+          -0.55
+        ],
+        "width": 0.55,
+        "height": 0.32,
+        "color": "#d66853"
+      },
+      {
+        "center": [
+          3.0,
+          -0.5
+        ],
+        "width": 0.9,
+        "height": 0.65,
+        "color": "#d66853"
+      }
+    ],
+    "stabilize": true,
+    "horizon_steps": 80,
+    "dt": 0.04,
+    "hold_time": 6.0,
+    "goal_x": 3.0,
+    "initial_angle_offset": 0.08,
+    "obstacle_weight": 1800.0,
+    "obstacle_clearance": 0.24,
+    "obstacle_samples_per_link": 4
+  },
+  "params": {
+    "cart_mass": 1.0,
+    "link1_mass": 0.2,
+    "link2_mass": 0.2,
+    "link1_length": 0.5,
+    "link2_length": 0.5,
+    "gravity": 9.81,
+    "cart_damping": 1.0,
+    "joint1_damping": 0.1,
+    "joint2_damping": 0.01,
+    "force_limit": 150.0
+  },
+  "obstacles": [
+    {
+      "type": "box",
+      "center": [
+        1.4,
+        0.55
+      ],
+      "width": 0.55,
+      "height": 0.32,
+      "color": "#d66853"
+    },
+    {
+      "type": "box",
+      "center": [
+        1.4,
+        -0.55
+      ],
+      "width": 0.55,
+      "height": 0.32,
+      "color": "#d66853"
+    },
+    {
+      "type": "box",
+      "center": [
+        3.0,
+        -0.5
+      ],
+      "width": 0.9,
+      "height": 0.65,
+      "color": "#d66853"
+    }
+  ],
+  "switch_time": 3.2
+}
